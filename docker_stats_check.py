@@ -67,7 +67,7 @@
 #
 
 import sys
-from docker import Client
+import docker
 from optparse import OptionParser
 from subprocess import call
 import json
@@ -84,10 +84,20 @@ class DockerService(object):
     def docker_stats(self):
         """Connect to the Docker object and get stats. Error out on failure."""
 
-        docker_conn = Client(base_url=self.url)
-
         try:
-            stats = docker_conn.stats(self.container)
+            if hasattr(docker, 'Client'):
+                # Docker-py 1.x branch
+                docker_conn = docker.Client(base_url=self.url)
+                stats = docker_conn.stats(self.container)
+            elif hasattr(docker, 'DockerClient'):
+                # Docker-py 2.x branch
+                docker_conn = docker.DockerClient(base_url=self.url)
+                stats_gen = docker_conn.containers.get(self.container).stats()
+                stats_gen.next() # skip first because it has zeroed precpu_stats
+                stats = [ stats_gen.next() ]
+            else:
+                print "docker_stats_check.py: unsupported version of Docker-py library '%s' (supported are 1.x and 2.x)" % docker.version
+                sys.exit(1)
             self.docker_running = True
         # Apologies for the broad exception, it just works here.
         except Exception:
@@ -99,6 +109,8 @@ class DockerService(object):
                 s = json.loads(stat)
                 print 'metric cpu_total_usage int64', s['cpu_stats']['cpu_usage']['total_usage']
                 print 'metric cpu_system_usage int64', s['cpu_stats']['system_cpu_usage']
+                if s['precpu_stats'] and s['precpu_stats'].has_key('cpu_usage') and s['precpu_stats']['cpu_usage'].has_key('total_usage'):
+                    print 'metric cpu_usage_percent int64 %.2f' % get_cpu_percentage(s['cpu_stats'], s['precpu_stats'])
                 print 'metric cpu_kernel_mode_usage int64', s['cpu_stats']['cpu_usage']['usage_in_kernelmode']
                 print 'metric cpu_user_mode_usage int64', s['cpu_stats']['cpu_usage']['usage_in_usermode']
                 print 'metric memory_usage int64', s['memory_stats']['usage']
@@ -123,6 +135,18 @@ class DockerService(object):
         else:
             print 'status err failed to obtain docker container stats.'
             sys.exit(1)
+
+def get_cpu_percentage(c, p):
+    """
+        Adapted from https://github.com/moby/moby/blob/eb131c5383db8cac633919f82abad86c99bffbe5/cli/command/container/stats_helpers.go#L175
+        See https://github.com/moby/moby/issues/29306
+    """
+    cpuPercent = 0.0
+    cpuDelta = float(c['cpu_usage']['total_usage']) - float(p['cpu_usage']['total_usage'])
+    systemDelta = float(c['system_cpu_usage']) - float(p['system_cpu_usage'])
+    if cpuDelta > 0.0 and systemDelta > 0.0:
+        cpuPercent = (cpuDelta / systemDelta) * float(len(p['cpu_usage']['percpu_usage'])) * 100.0
+    return cpuPercent
 
 def print_network_stat(n, suffix=''):
     print "metric network_rx_bytes%s int64 %d" % (suffix, n['rx_bytes'])
