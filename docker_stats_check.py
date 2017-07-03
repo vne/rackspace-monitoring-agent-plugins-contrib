@@ -101,6 +101,9 @@ class DockerService(object):
                 print 'metric cpu_system_usage int64', s['cpu_stats']['system_cpu_usage']
                 print 'metric cpu_kernel_mode_usage int64', s['cpu_stats']['cpu_usage']['usage_in_kernelmode']
                 print 'metric cpu_user_mode_usage int64', s['cpu_stats']['cpu_usage']['usage_in_usermode']
+                print 'metric memory_usage int64', s['memory_stats']['usage']
+                if s['memory_stats'].has_key('limit'):
+                    print 'metric memory_usage_percent int64 %.1f' % (100.0*(float(s['memory_stats']['usage']) / float(s['memory_stats']['limit'])))
                 print 'metric memory_max_usage int64', s['memory_stats']['max_usage']
                 print 'metric memory_total_cache int64', s['memory_stats']['stats']['total_cache']
                 print 'metric pids_current int64', s['pids_stats']['current']
